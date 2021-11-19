@@ -1,0 +1,117 @@
+@startuml
+'https://plantuml.com/class-diagram
+'Fait le 18 nov. 2021
+
+set namespaceSeparator ::
+class str::str_stat {
+    -- description --
+    chaine de caractères
+    regroupant les statistiques
+}
+class str::str_desc {
+    -- description --
+    Décrit comment un spell
+    se comporte une fois en jeu
+}
+class str::str_class {
+    -- description --
+    Décrit la liste des classes
+    qu'un caractère possède
+}
+class str::str_spell {
+    -- description --
+    Décrit la liste des spells
+    qu'un caractère possède
+}
+class str::str_craft {
+    -- description --
+    Décrit la manière de
+    fabriquer un objet
+}
+class str::str_shop {
+    -- description --
+    Décrit le contenu des objets
+    vendus lors de l'achat
+}
+
+package databases <<Database>> {
+
+    class authentifier {
+        -- account --
+        uuid
+        pseudo
+        password
+        mail
+        token
+    }
+
+    class resources {
+    -- image --
+        id
+        image
+        metadata
+    }
+
+    class ozad {
+        -- player --
+            uuid : int
+            pseudo : str
+            token : str
+        ..
+            money : int
+        -- class --
+            id : int
+            name : str
+            description : str
+            statistics : str_stat
+            parents : class
+            children : class
+            spell : spell
+            item_type : item_type
+        -- spell --
+            id : int
+            name : str
+            description : str
+            statistics : str_stat
+        ..
+            game_description : str_desc
+        -- item_type --
+            id : int
+            name : str
+        -- item --
+            id : int
+            name : str
+            type : item_type
+            description : str
+            statistics : str_stat
+            craft : str_craft
+        -- body --
+            id : int
+            name : int
+            description : int
+            statistics : str_stat
+        -- equipment --
+            id : int
+            player : player
+            item : item
+        -- character --
+            id : int
+            player : player
+            body : body
+            head : item
+            chest : item
+            legs : item
+            feet : item
+            hand_right : item
+            hand_left : item
+            classes : str_class
+            spell : str_spell
+        -- shop --
+            id : int
+            price : int
+            item : str_shop
+    }
+
+}
+
+@enduml
