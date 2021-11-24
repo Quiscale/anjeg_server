@@ -3,17 +3,18 @@ import ast
 import json
 import socket
 import traceback
-from multiprocessing import Process, Queue
 from typing import Tuple
+from multiprocessing import Process, Queue
 
 from .logger import Logger, ERROR, WARNING
+from .parser import ParserError, HeaderError, Parser
 
 
 VERSION = "Ozad/0.0.402021"
 
 
 # #############################################################################
-# Class Exception
+# Class exception
 # #############################################################################
 
 class DataError(Exception):
@@ -33,13 +34,13 @@ class Client(Process, Logger):
     Il reçoit les données via un socket et se sert de la classe Parser pour analyser les données reçu
     """
 
-    def __init__(self, sock: socket.socket, addr: Tuple, server_queue: Queue):
+    def __init__(self, sock: socket.socket, addr: Tuple, server):
         Process.__init__(self)
         Logger.__init__(self, f"client_{sock.fileno()}")
 
         self.__id = sock.fileno()
         self.__socket = sock
-        self.__queue = server_queue
+        self.__server = server
         self.__buffer = bytearray()
 
         self.__account_id = None
@@ -53,61 +54,71 @@ class Client(Process, Logger):
         while run:
             # Reçoit les données
             req = self.__socket.recv(256)
-            res = None
+            resh, resb = "", ""  # Response head & body
             self.__buffer += req
             # Extrait l'entête
             header_len = self.__buffer.find(b'\n')
             header = self.__buffer[:header_len]
             del self.__buffer[:header_len + 1]
-            self.log(header)
+            self.log(str(header))
             # Analyse l'entête
             try:
-                data = b"{}"
-                func, data_len, uuid, req_id = PARSER.parse(header)
+                data = {}
+                func, data_type, data_len, id, token = self.__server.parse(header)
                 if data_len is not None:
                     # Extrait les données liées à l'entête
-                    data = self.__buffer[:data_len + 1]
+                    bdata = self.__buffer[:data_len + 1]  # for bytes data
                     del self.__buffer[:data_len + 1]
 
+                    sdata = bdata.decode('utf-8')  # for str data
+                    if data_type == "TEXT":
+                        data["text"] = sdata
+                    elif data_type == "JSON":
+                        data = ast.literal_eval(sdata)
+                        print(data)
+                    elif data_type == "IMAGE":
+                        data["image"] = bdata
+
                 args = {
-                    key: {**ast.literal_eval(data.decode('utf-8')), "client": self, "uuid": uuid}[key]
+                    key: {**data, "client": self, "uuid": token}[key]
                     for key in func.__code__.co_varnames[:func.__code__.co_argcount]
                 }
                 try:
                     res = func(**args)
-
-                    resb = json.dumps(res, separators=(', ', ':')).encode('utf-8')
-                    res_head = f"{200} {VERSION} {req_id} JSON {len(resb)}\n".encode('utf-8')
-                    self.__socket.send(res_head + resb)
+                    # Prepare response head & body
+                    resb = json.dumps(res, separators=(', ', ':'))
+                    resh = f"{200} {VERSION} {id} JSON {len(resb)}\n"
                 except DataError as e:
-                    resb = e.msg.encode('utf-8')
-                    res_head = f"{e.code} {VERSION} {req_id} TEXT {len(resb)}\n".encode('utf-8')
-                    self.__socket.send(res_head + resb)
+                    # Prepare response head & body
+                    resb = e.msg
+                    resh = f"{e.code} {VERSION} {id} TEXT {len(resb)}\n"
 
             except ParserError as e:
                 self.log(f"#{e.code} : {e.msg}", WARNING)
                 if e.code == 0:
                     run = False
                 else:
-                    resb = e.msg.encode('utf-8')
-                    res_head = f"{e.code} {VERSION} . TEXT {len(resb)}\n".encode('utf-8')
-                    self.__socket.send(res_head + resb)
+                    # Prepare response head & body
+                    resb = e.msg
+                    resh = f"{e.code} {VERSION} . TEXT {len(resb)}\n"
             except HeaderError as e:
-                resb = e.msg.encode('utf-8')
-                res_head = f"{e.code} {VERSION} {e.request_id} TEXT {len(resb)}\n".encode('utf-8')
-                self.__socket.send(res_head + resb)
+                # Prepare response head & body
+                resb = e.msg
+                resh = f"{e.code} {VERSION} {e.request_id} TEXT {len(resb)}\n"
             except Exception as e:
                 traceback.print_tb(e.__traceback__)
                 self.log(f"{type(e)} {e}", ERROR)
-                resb = f"{type(e)} {e}".encode('utf-8')
-                res_head = f"500 {VERSION} . TEXT {len(resb)}\n".encode('utf-8')
-                self.__socket.send(res_head + resb)
+                # Prepare response head & body
+                resb = f"{type(e)} {e}"
+                resh = f"500 {VERSION} . TEXT {len(resb)}\n" 
+
+            self.__socket.send(resh.encode('utf-8') + resb.encode('utf-8'))
 
             # end while
 
         self.__socket.shutdown(socket.SHUT_RDWR)
         self.__socket.close()
-        self.__queue.put(("CLOSE", self.id))
+        self.__server.put_in_queue(("CLOSE", self.id))
 
     def fileno(self):
         return self.__socket.fileno()
@@ -136,10 +147,11 @@ class Server(Process, Logger):
     Il possède une queue afin de traiter les données qui lui sont envoyées
     """
 
-    def __init__(self, host: str, port: int):
+    def __init__(self, host: str, port: int, parser: Parser):
         Process.__init__(self)
         Logger.__init__(self, "server")
 
+        self.__parser = parser
         self.__queue = Queue()
         self.__clients = {}
 
@@ -153,6 +165,9 @@ class Server(Process, Logger):
     def put_in_queue(self, data):
         self.__queue.put(data)
 
+    def parse(self, data):
+        return self.__parser.parse(data)
+
     def run(self):
 
         self.log("Start")
@@ -163,7 +178,7 @@ class Server(Process, Logger):
                 # Accept new socket
                 try:
                     client_socket, client_address = self.__socket.accept()
-                    client = Client(client_socket, client_address, self.__queue)
+                    client = Client(client_socket, client_address, self)
                     self.__clients[client.id] = client
                     client.start()
                 except socket.timeout as e:
