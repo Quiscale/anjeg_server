@@ -84,14 +84,14 @@ class Client(Process, Logger):
                     for key in func.__code__.co_varnames[:func.__code__.co_argcount]
                 }
                 try:
-                    res = func(**args)
+                    res_type, res = func(**args)
                     # Prepare response head & body
                     resb = json.dumps(res, separators=(', ', ':'))
-                    resh = f"{200} {VERSION} {id} JSON {len(resb)}\n"
+                    resh = f"{200} {id} {res_type} {len(resb)}\n"
                 except DataError as e:
                     # Prepare response head & body
                     resb = e.msg
-                    resh = f"{e.code} {VERSION} {id} TEXT {len(resb)}\n"
+                    resh = f"{e.code} {id} TEXT {len(resb)}\n"
 
             except ParserError as e:
                 self.log(f"#{e.code} : {e.msg}", WARNING)
@@ -100,17 +100,17 @@ class Client(Process, Logger):
                 else:
                     # Prepare response head & body
                     resb = e.msg
-                    resh = f"{e.code} {VERSION} . TEXT {len(resb)}\n"
+                    resh = f"{e.code} . TEXT {len(resb)}\n"
             except HeaderError as e:
                 # Prepare response head & body
                 resb = e.msg
-                resh = f"{e.code} {VERSION} {e.request_id} TEXT {len(resb)}\n"
+                resh = f"{e.code} {e.request_id} TEXT {len(resb)}\n"
             except Exception as e:
                 traceback.print_tb(e.__traceback__)
                 self.log(f"{type(e)} {e}", ERROR)
                 # Prepare response head & body
                 resb = f"{type(e)} {e}"
-                resh = f"500 {VERSION} . TEXT {len(resb)}\n" 
+                resh = f"500 . TEXT {len(resb)}\n"
 
             self.__socket.send(resh.encode('utf-8') + resb.encode('utf-8'))
 
