@@ -80,7 +80,7 @@ class Client(Process, Logger):
                         data["image"] = bdata
 
                 args = {
-                    key: {**data, "client": self, "uuid": token}[key]
+                    key: {**data, "client": self, "token": token}[key]
                     for key in func.__code__.co_varnames[:func.__code__.co_argcount]
                 }
                 try:
